@@ -11,6 +11,7 @@ import Mathlib.Data.Complex.Basic
 import Mathlib.Algebra.CharP.Invertible
 import Mathlib.Analysis.RCLike.Basic
 import Mathlib.Analysis.Complex.Polynomial.Basic
+import Mathlib.Algebra.DirectSum.LinearMap
 
 /-!
 # Frobenius-Schur Indicator
@@ -25,18 +26,200 @@ We prove that a zero FS indicator implies the character is not real-valued, and 
 representation is complex.
 
 ## TODO
-* Prove that the symmetric and alternating squares of a representation correspond to the
-fsCharSym and fsCharAlt functions, respectively.
+* Determine the characters of Sym²V and Alt²V.
 * Prove the dual of a simple representation is simple.
-* Determine the sturcture of the representation when FSindicator is 1 or -1.
 * Prove the simple representations is nontrivial.
-
+* Optimize the theorem by using the constructed Sym²V and Alt²V directly, instead of via
+  `symSqFDRep`/`altSqFDRep`.
+* Determine the sturcture of the representation when FSindicator is 1 or -1.
 -/
 
-variable {G : Type} [Group G] [Fintype G]
+variable {G : Type} [Group G] [Fintype G] {V : FDRep ℂ G}
 
 noncomputable def FSindicator (V : FDRep ℂ G) : ℂ :=
   ∑ g : G, (V.character (g * g)) / Fintype.card G
+
+/-We define the Sym^2 V and Alt^2 V, using the flip homormophism.-/
+noncomputable def flipHom (V : FDRep ℂ G) :
+  (TensorProduct ℂ V.V V.V) →ₗ[ℂ] (TensorProduct ℂ V.V V.V) :=
+  TensorProduct.comm ℂ V.V V.V
+
+noncomputable def flipSqSubmodule (sign : ℤ) (V : FDRep ℂ G) :
+  Submodule ℂ (TensorProduct ℂ V.V V.V) :=
+  LinearMap.ker (flipHom V - sign • LinearMap.id)
+
+noncomputable def flipProjector (sign : ℤ) (V : FDRep ℂ G) :
+  Module.End ℂ (TensorProduct ℂ V.V V.V) :=
+  (⅟2 : ℂ) • (LinearMap.id + sign • flipHom V)
+
+/-We show the projector defined above is invariant on the subspace.-/
+omit [Fintype G] in
+lemma symProjector_mem_symSqSubmodule (V : FDRep ℂ G) (v : TensorProduct ℂ V.V V.V) :
+  flipProjector 1 V v ∈ flipSqSubmodule 1 V := by
+  apply LinearMap.mem_ker.mpr
+  simp only [zsmul_eq_mul, LinearMap.sub_apply, Module.End.mul_apply, LinearMap.id_coe, id_eq,
+    Module.End.intCast_apply,flipProjector]
+  simp only [invOf_eq_inv, smul_add, LinearMap.add_apply, LinearMap.smul_apply, LinearMap.id_coe,
+    id_eq, Module.End.mul_apply, Module.End.intCast_apply, map_add, map_smul,
+    LinearMap.map_smul_of_tower]
+  abel_nf
+  have flip_flip : (flipHom V).comp (flipHom V) = LinearMap.id := by
+    ext x y
+    simp [flipHom, TensorProduct.comm_tmul]
+  have : (flipHom V) ((flipHom V) v) = (flipHom V).comp (flipHom V) v := by
+    simp only [LinearMap.coe_comp, Function.comp_apply]
+  have flip_flip_v : (flipHom V) ((flipHom V) v) = v := by
+    rw [this, flip_flip]
+    simp only [LinearMap.id_coe, id_eq]
+  rw[flip_flip_v]
+  simp only [Int.reduceNeg, neg_smul, one_smul, add_neg_cancel]
+
+omit [Fintype G] in
+lemma altProjector_mem_altSqSubmodule (V : FDRep ℂ G) (v : TensorProduct ℂ V.V V.V) :
+  flipProjector (-1) V v ∈ flipSqSubmodule (-1) V := by
+  apply LinearMap.mem_ker.mpr
+  simp only [zsmul_eq_mul, LinearMap.sub_apply, Module.End.mul_apply, LinearMap.id_coe, id_eq,
+    Module.End.intCast_apply,flipProjector]
+  simp only [invOf_eq_inv, smul_add, LinearMap.add_apply, LinearMap.smul_apply, LinearMap.id_coe,
+    id_eq, Module.End.mul_apply, Module.End.intCast_apply, map_add, map_smul,
+    LinearMap.map_smul_of_tower]
+  abel_nf
+  have flip_flip : (flipHom V).comp (flipHom V) = LinearMap.id := by
+    ext x y
+    simp [flipHom, TensorProduct.comm_tmul]
+  have : (flipHom V) ((flipHom V) v) = (flipHom V).comp (flipHom V) v := by
+    simp only [LinearMap.coe_comp, Function.comp_apply]
+  have flip_flip_v : (flipHom V) ((flipHom V) v) = v := by
+    rw [this, flip_flip]
+    simp only [LinearMap.id_coe, id_eq]
+  rw[flip_flip_v]
+  simp only [Int.reduceNeg, neg_smul, one_smul, smul_neg, neg_add_cancel_left, add_neg_cancel]
+
+
+/- We prove that the tensor square decomposes into the internal direct sum of
+`flipSqSubmodule 1 V` (symmetric) and `flipSqSubmodule (-1) V` (alternating).-/
+omit [Fintype G] in
+lemma sym_alt_submodule_IsInternal (V : FDRep ℂ G) :
+  DirectSum.IsInternal ![(flipSqSubmodule 1 V),(flipSqSubmodule (-1) V)] := by
+  have : IsCompl (flipSqSubmodule 1 V) (flipSqSubmodule (-1) V) := by
+    constructor
+    · intro x ha hb v hv
+      let fa := LinearMap.mem_ker.mp (ha hv)
+      let fb := LinearMap.mem_ker.mp (hb hv)
+      simp only [one_smul, LinearMap.sub_apply, LinearMap.id_coe, id_eq] at fa
+      simp only [Int.reduceNeg, neg_smul, one_smul, sub_neg_eq_add, LinearMap.add_apply,
+        LinearMap.id_coe, id_eq] at fb
+      have f : (2 : ℂ) • v = 0 - 0 := by
+        nth_rw 1 [← fb]
+        rw[← fa]
+        abel_nf
+        norm_cast
+      simp only [sub_self] at f
+      have : v = 0 := by
+        have : (2 : ℂ) ≠ 0 := by norm_num
+        rcases (smul_eq_zero.mp f) with h1 | h2
+        · cases this h1
+        · exact h2
+      exact this
+    · intro x ha hb v hv
+      let va := flipProjector 1 V v
+      let vb := flipProjector (-1) V v
+      have : va + vb = v := by
+        simp only [flipProjector, invOf_eq_inv, one_smul, smul_add, LinearMap.add_apply,
+          LinearMap.smul_apply, LinearMap.id_coe, id_eq, Int.reduceNeg, neg_smul, smul_neg,
+          LinearMap.neg_apply, va, vb]
+        abel_nf
+        have : (2 : ℂ) • (2⁻¹ : ℂ) • v = v := by
+          rw[← mul_smul]
+          simp only [ne_eq, OfNat.ofNat_ne_zero, not_false_eq_true, mul_inv_cancel₀, one_smul]
+        exact_mod_cast this
+      let h_va := symProjector_mem_symSqSubmodule V v
+      let h_vb := altProjector_mem_altSqSubmodule V v
+      have hc_va : va ∈ x := by
+        simp_all only [Int.reduceNeg, Submodule.mem_top, va, vb]
+        apply ha
+        simp_all only [Int.reduceNeg]
+      have hc_vb : vb ∈ x := by
+        simp_all only [Int.reduceNeg, Submodule.mem_top, va, vb]
+        apply hb
+        simp_all only [Int.reduceNeg]
+      have v_mem_x : v ∈ x := by
+        rw[← this]
+        exact Submodule.add_mem x hc_va hc_vb
+      exact v_mem_x
+  have f1 : @Fin.mk 2 0 (by decide) ≠ @Fin.mk 2 1 (by decide) := by norm_num
+  --have f2 : Set.univ = {@Fin.mk 2 0 (by decide), @Fin.mk 2 1 (by decide)⟩} := by sorry
+  have f2 : Set.univ = {@Fin.mk 2 0 (by decide), @Fin.mk 2 1 (by decide)} := by
+    ext x
+    fin_cases x <;> simp
+  exact (DirectSum.isInternal_submodule_iff_isCompl
+    ![(flipSqSubmodule 1 V),(flipSqSubmodule (-1) V)] f1 f2).mpr this
+
+/-The tensor square $V \otimes V$ can be decomposed into symmetric and alternating parts.
+We formalize these as subrepresentations of the tensor product representation.-/
+
+/- The symmetric (sign=1) and alternating (sign=-1) submodules are invariant under
+the group action. This lemma proves the G-invariance by showing that the group action
+commutes with the `flipHom` operator. -/
+omit [Fintype G] in
+lemma flipSqSubmodule_invariant (sign : ℤ) :
+  ∀ (g : G),
+    (flipSqSubmodule sign V) ≤
+    Submodule.comap ((Representation.tprod V.ρ V.ρ) g) (flipSqSubmodule sign V)  := by
+  intro g x hx
+  unfold flipSqSubmodule at *
+  simp only [Submodule.mem_comap, LinearMap.mem_ker, Representation.tprod_apply,
+  LinearMap.sub_apply, zsmul_eq_mul, Module.End.mul_apply, LinearMap.id_coe,
+  id_eq, Module.End.intCast_apply]
+  simp only [LinearMap.mem_ker, LinearMap.sub_apply, sub_eq_zero, zsmul_eq_mul,
+  Module.End.mul_apply, LinearMap.id_coe, id_eq,Module.End.intCast_apply] at hx
+  have : (flipHom V).comp (TensorProduct.map (V.ρ g) (V.ρ g)) =
+  (TensorProduct.map (V.ρ g) (V.ρ g)).comp (flipHom V) := by
+    ext x y
+    simp [flipHom, TensorProduct.map_tmul]
+  have : (flipHom V) (TensorProduct.map (V.ρ g) (V.ρ g) x) =
+    TensorProduct.map (V.ρ g) (V.ρ g) ((flipHom V) x) := by
+    simpa using congrArg (fun f => f x) this
+  rw [this, hx]
+  simp only [LinearMap.map_smul_of_tower, sub_self]
+
+/- A set-theoretic version of the invariance lemma, used for trace calculations. -/
+omit [Fintype G] in
+lemma flipSqSubmodule_invariant' (sign : ℤ) (g : G) :
+  Set.MapsTo (TensorProduct.map (V.ρ g) (V.ρ g))
+  (flipSqSubmodule sign V) (flipSqSubmodule sign V) := by
+  intro x hx
+  apply Submodule.mem_comap.mp
+  let h := flipSqSubmodule_invariant (V:=V) sign g
+  simp_all only [SetLike.mem_coe, Submodule.mem_comap]
+  apply h
+  exact hx
+
+/- Construct the subrepresentation in the `Rep ℂ G` category. -/
+noncomputable def flipSqRep (sign : ℤ) (V : FDRep ℂ G) : Rep ℂ G :=
+  Rep.subrepresentation
+    (Rep.of (Representation.tprod V.ρ V.ρ))
+    (flipSqSubmodule sign V)
+    (flipSqSubmodule_invariant sign)
+
+instance flipSqSubmodule.finiteDimensional (sign : ℤ) :
+  FiniteDimensional ℂ ↥(flipSqSubmodule sign V) := by
+  infer_instance
+
+omit [Fintype G] in
+instance flipSqRep_finite (sign : ℤ) (V : FDRep ℂ G) :
+  Module.Finite ℂ (flipSqRep sign V).V := by
+  exact flipSqSubmodule.finiteDimensional sign
+
+noncomputable def flipSqFDRep (sign : ℤ) (V : FDRep ℂ G) : FDRep ℂ G :=
+  FDRep.of (flipSqRep sign V).ρ
+
+noncomputable def symSqFDRep (V : FDRep ℂ G) : FDRep ℂ G :=
+  flipSqFDRep 1 V
+
+noncomputable def altSqFDRep (V : FDRep ℂ G) : FDRep ℂ G :=
+  flipSqFDRep (-1) V
+
 
 noncomputable def fsChar {G} [Group G] (sign : ℤ) (χ : G → ℂ) : G → ℂ :=
   fun g =>
@@ -45,37 +228,60 @@ noncomputable def fsChar {G} [Group G] (sign : ℤ) (χ : G → ℂ) : G → ℂ
 noncomputable def fsCharSym (χ : G → ℂ) : G → ℂ := fsChar 1 χ
 noncomputable def fsCharAlt (χ : G → ℂ) : G → ℂ := fsChar (-1) χ
 
+instance TensorProduct.finiteDimensional :
+  FiniteDimensional ℂ (TensorProduct ℂ V.V V.V) := by
+  infer_instance
+
+/- This lemma establishes the relation between the characters of the representations V⊗V
+and Sym²V (or Alt²V) by means of a projector. This approach is easier to implement in Lean
+compared to computing the trace from the n² eigenvalues.-/
+lemma trace_subrep_eq_trace_comp_proj (sign : ℤ) (g : G) :
+  (flipSqFDRep sign V).character g =
+  @LinearMap.trace ℂ _ (TensorProduct ℂ V.V V.V) _ _
+  (((Representation.tprod V.ρ V.ρ) g) ∘ₗ (flipProjector sign V)) := by
+  let h := Representation.subrepresentation_apply
+    (Rep.of (Representation.tprod V.ρ V.ρ)).ρ
+    (flipSqSubmodule sign V) (flipSqSubmodule_invariant sign)
+  change ∀ (g : G), (flipSqRep sign V).ρ g = _ at h
+  let h := h g
+  let N := ![(flipSqSubmodule 1 V),(flipSqSubmodule (-1) V)]
+  have hf : ∀ i : Fin 2, Set.MapsTo ((Representation.tprod V.ρ V.ρ) g) (N i) (N i) := by
+    intro i
+    rcases i with i0 | i1
+    · unfold N
+      simp only [Representation.tprod_apply, Nat.succ_eq_add_one, Nat.reduceAdd, Int.reduceNeg,
+        Fin.zero_eta, Fin.isValue, Matrix.cons_val_zero]
+      exact flipSqSubmodule_invariant' 1 g
+    · unfold N
+      simp only [Representation.tprod_apply, Nat.succ_eq_add_one, Nat.reduceAdd, Int.reduceNeg,
+        Matrix.cons_val_succ', Matrix.cons_val_fin_one]
+      exact flipSqSubmodule_invariant' (-1) g
+  let f := LinearMap.trace_eq_sum_trace_restrict (sym_alt_submodule_IsInternal V) hf
+  sorry
+
+/-This lemma is to show the relation between the characters of V and Sym²V(or Alt²V).-/
+lemma flipSqFDRep_character (sign : ℤ) (V : FDRep ℂ G) :
+  (flipSqFDRep sign V).character = fsChar sign V.character := by
+  sorry
+
+
 lemma charSym_add_charAlt_eq_char_sq {G} [Group G] (χ : G → ℂ) (g : G) :
   fsCharSym χ g + fsCharAlt χ g = (χ g)^2 := by
   unfold fsCharSym fsCharAlt fsChar
   ring
 
-/- The fact that these formulas correspond to actual characters follows from the decomposition
-of the tensor square V ⊗ V into symmetric (S²) and exterior (Λ²) components. I am leaving this
-as an 'admit' for now as the structural construction of these sub-representations in mathlib is
-beyond my current familiarity with the library. -/
 lemma fsChar_is_char (sign : ℤ) (V : FDRep ℂ G) :
-  ∃ W : FDRep ℂ G, W.character = fsChar sign V.character := by admit
+  ∃ W : FDRep ℂ G, W.character = fsChar sign V.character := by
+    use flipSqFDRep sign V
+    exact flipSqFDRep_character sign V
 
-noncomputable def fsSymRep (V : FDRep ℂ G) : FDRep ℂ G :=
-  Classical.choose (fsChar_is_char 1 V)
+lemma symSqFDRep_character :
+  (symSqFDRep V).character = fsCharSym V.character := by
+  exact flipSqFDRep_character 1 V
 
-noncomputable def fsAltRep (V : FDRep ℂ G) : FDRep ℂ G :=
-  Classical.choose (fsChar_is_char (-1) V)
-
-
-lemma fsSymRep_character (V : FDRep ℂ G) :
-  (fsSymRep V).character = fsCharSym V.character :=
-by
-  simpa [fsCharSym]
-    using (Classical.choose_spec (fsChar_is_char 1 V))
-
-
-lemma fsAltRep_character (V : FDRep ℂ G) :
-  (fsAltRep V).character = fsCharAlt V.character :=
-by
-  simpa [fsCharAlt]
-    using (Classical.choose_spec (fsChar_is_char (-1) V))
+lemma altSqFDRep_character :
+  (altSqFDRep V).character = fsCharAlt V.character := by
+  exact flipSqFDRep_character (-1) V
 
 lemma average_rep_eq_natCast (V : FDRep ℂ G) :
   ∃ n : ℕ,
@@ -96,23 +302,23 @@ lemma average_sq_eq_natCast (V : FDRep ℂ G) :
   ∃ n : ℕ,
     (⅟(Fintype.card G : ℂ) • ∑ g : G, (V.character g)^2) = (n : ℂ) := by
   -- use charSym_add_charAlt_eq_char_sq and average_rep_eq_natCast twice
-  obtain ⟨n1, hn1⟩ := average_rep_eq_natCast (fsSymRep V)
-  obtain ⟨n2, hn2⟩ := average_rep_eq_natCast (fsAltRep V)
+  obtain ⟨n1, hn1⟩ := average_rep_eq_natCast (symSqFDRep V)
+  obtain ⟨n2, hn2⟩ := average_rep_eq_natCast (altSqFDRep V)
   use n1 + n2
   simp only [Nat.cast_add]
   rw [← hn1, ← hn2]
   simp only [← charSym_add_charAlt_eq_char_sq V.character]
-  simp only [fsSymRep_character, fsAltRep_character]
+  simp only [symSqFDRep_character, altSqFDRep_character]
   simp [Finset.sum_add_distrib, mul_add]
 
 /- The details here are tedious and left for future work. -/
-def FDRep.dual_iso (V : FDRep ℂ G) :
+def FDRep.dual_iso :
   FDRep.of (Representation.dual V.ρ) ≅ V := sorry
 
 omit [Fintype G] in
-lemma dual_simple_of_simple (V : FDRep ℂ G) [CategoryTheory.Simple V] :
+lemma dual_simple_of_simple [CategoryTheory.Simple V] :
   CategoryTheory.Simple (FDRep.of (Representation.dual V.ρ)) :=
-  CategoryTheory.Simple.of_iso (FDRep.dual_iso V)
+  CategoryTheory.Simple.of_iso (FDRep.dual_iso)
 
 lemma average_sq_le_one (V : FDRep ℂ G) [CategoryTheory.Simple V] :
   ∃ n : ℕ,
@@ -126,7 +332,7 @@ lemma average_sq_le_one (V : FDRep ℂ G) [CategoryTheory.Simple V] :
         inv_eq_zero, Nat.cast_eq_zero, Fintype.card_ne_zero, or_false]
       ring_nf
     haveI : CategoryTheory.Simple (FDRep.of (Representation.dual V.ρ)) :=
-      dual_simple_of_simple V
+      dual_simple_of_simple
     rw[FDRep.char_orthonormal V (FDRep.of (Representation.dual V.ρ))] at f
     have ff : (⅟(Fintype.card G : ℂ) • ∑ g : G, (V.character g)^2) = 0 ∨
       (⅟(Fintype.card G : ℂ) • ∑ g : G, (V.character g)^2) = 1
@@ -154,17 +360,16 @@ lemma charSym_sub_charAlt_eq_FSindicator (V : FDRep ℂ G) :
 
 /- The values of FSindicator are only possible to be -1, 0 or 1. The different values also yield
 different properties of the character. -/
-theorem FSindicator_values {G : Type} [Group G] [Fintype G]
-  (V : FDRep ℂ G) [CategoryTheory.Simple V] :
+theorem FSindicator_values [CategoryTheory.Simple V] :
   FSindicator V = 1 ∨ FSindicator V = 0 ∨ FSindicator V = -1 := by
   have f_sym_nat : ∃ n : ℕ,
     (⅟(Fintype.card G : ℂ) • ∑ g : G, fsCharSym V.character g) = (n : ℂ) := by
-    rw[← fsSymRep_character V]
-    exact average_rep_eq_natCast (fsSymRep V)
+    rw[← symSqFDRep_character]
+    exact average_rep_eq_natCast (symSqFDRep V)
   have f_alt_nat : ∃ n : ℕ,
     (⅟(Fintype.card G : ℂ) • ∑ g : G, fsCharAlt V.character g) = (n : ℂ) := by
-    rw[← fsAltRep_character V]
-    exact average_rep_eq_natCast (fsAltRep V)
+    rw[← altSqFDRep_character]
+    exact average_rep_eq_natCast (altSqFDRep V)
   obtain ⟨n_sym, hn_sym⟩ := f_sym_nat
   obtain ⟨n_alt, hn_alt⟩ := f_alt_nat
   obtain ⟨n_sq, hn_sq, hn_sq_le⟩ := average_sq_le_one V
@@ -197,24 +402,23 @@ theorem FSindicator_values {G : Type} [Group G] [Fintype G]
       exact symm g
 
 /- The details here are tedious and left for future work. -/
-lemma FDRep.nontrivial_of_simple (V : FDRep ℂ G) [CategoryTheory.Simple V] :
+lemma FDRep.nontrivial_of_simple [CategoryTheory.Simple V] :
   Nontrivial V.V := by sorry
 
 /- A zero FS indicator implies that the symmetric and alternating squares both vanish, leading
 to a zero average for χ^2. Thus, χ cannot be real-valued, as a real character would yield a
 strictly positive sum of squares. -/
-theorem not_real_of_FSindicator_eq_zero {G : Type} [Group G] [Fintype G]
-  (V : FDRep ℂ G) [CategoryTheory.Simple V] (fs0 : FSindicator V = 0) :
+theorem not_real_of_FSindicator_eq_zero [CategoryTheory.Simple V] (fs0 : FSindicator V = 0) :
   ∃ g : G , (V.character g) ≠ (starRingEnd ℂ) (V.character g) := by
   -- First Part: To get n_sq = 0.
   have f_sym_nat : ∃ n : ℕ,
     (⅟(Fintype.card G : ℂ) • ∑ g : G, fsCharSym V.character g) = (n : ℂ) := by
-    rw[← fsSymRep_character V]
-    exact average_rep_eq_natCast (fsSymRep V)
+    rw[← symSqFDRep_character]
+    exact average_rep_eq_natCast (symSqFDRep V)
   have f_alt_nat : ∃ n : ℕ,
     (⅟(Fintype.card G : ℂ) • ∑ g : G, fsCharAlt V.character g) = (n : ℂ) := by
-    rw[← fsAltRep_character V]
-    exact average_rep_eq_natCast (fsAltRep V)
+    rw[← altSqFDRep_character]
+    exact average_rep_eq_natCast (altSqFDRep V)
   obtain ⟨n_sym, hn_sym⟩ := f_sym_nat
   obtain ⟨n_alt, hn_alt⟩ := f_alt_nat
   obtain ⟨n_sq, hn_sq, hn_sq_le⟩ := average_sq_le_one V
@@ -272,7 +476,7 @@ theorem not_real_of_FSindicator_eq_zero {G : Type} [Group G] [Fintype G]
         have h_v : V.character 1 = (f_all_real 1).choose := (f_all_real 1).choose_spec
         have : ((f_all_real 1).choose : ℂ) ≠ 0 := by
           rw[← h_v,FDRep.char_one V]
-          have : Nontrivial ↑V.V := FDRep.nontrivial_of_simple V
+          have : Nontrivial ↑V.V := FDRep.nontrivial_of_simple
           have h_rank_pos : 0 < (Module.finrank ℂ ↑V.V : ℝ) := by
             have : 0 < (Module.finrank ℂ ↑V.V ) := Module.finrank_pos
             exact_mod_cast this
